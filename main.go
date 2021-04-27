@@ -1,17 +1,29 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/zhao2490/my-rpc/client"
-	"github.com/zhao2490/my-rpc/server"
+	"github.com/zhao2490/my-rpc/service"
 )
 
+type Foo int
+
+type Args struct{ Num1, Num2 int }
+
+func (f Foo) Sum(args Args, reply *int) error {
+	*reply = args.Num1 + args.Num2
+	return nil
+}
+
 func startServer(addr chan string) {
+	var foo Foo
+	if err := service.Register(&foo); err != nil {
+		log.Fatal("register error:", err)
+	}
 	// pick a free port
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -19,15 +31,13 @@ func startServer(addr chan string) {
 	}
 	log.Println("start rpc server on", l.Addr())
 	addr <- l.Addr().String()
-	server.DefaultServer.Accept(l)
+	service.DefaultServer.Accept(l)
 }
 
 func main() {
+	log.SetFlags(0)
 	addr := make(chan string)
 	go startServer(addr)
-
-	// in fact, following code is like a simple my-rpc client
-	//conn, _ := os.OpenFile("./zzz.txt", os.O_CREATE|os.O_WRONLY, 0777)
 	client, _ := client.Dial("tcp", <-addr)
 	defer func() { _ = client.Close() }()
 
@@ -38,12 +48,12 @@ func main() {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			args := fmt.Sprintf("geerpc req %d", i)
-			var reply string
+			args := &Args{Num1: i, Num2: i * i}
+			var reply int
 			if err := client.Call("Foo.Sum", args, &reply); err != nil {
 				log.Fatal("call Foo.Sum error:", err)
 			}
-			log.Println("reply:", reply)
+			log.Printf("%d + %d = %d", args.Num1, args.Num2, reply)
 		}(i)
 	}
 	wg.Wait()
